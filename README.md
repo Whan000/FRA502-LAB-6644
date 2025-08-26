@@ -9,13 +9,13 @@ colcon build
 . install/setup.bash
 --------------------------------------------------------------------------------
 After this your project have been built you can run it with ros2 command accordingly but some of the command need to be run in a seperated terminal dont forgot to source your files.
-
+```
 ros2 run turtlesim_plus turtlesim_plus_node.py
 ros2 run lab2 eater.py
 ros2 run lab2 killer.py
 ros2 service call /spawn_turtle turtlesim/srv/Spawn
 ros2 run lab2 turtlesim_pose.py
-
+``` 
 You can this command to limit and setup the maximum pizza that turtle is going to be eaten.
 ros2 topic pub --once /max_pizza std_msgs/msg/Int64 {"data: 10"}
 

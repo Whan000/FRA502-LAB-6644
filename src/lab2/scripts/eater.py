@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 
-from geometry_msgs.msg import Twist, Point, PointStamped
+from geometry_msgs.msg import Twist, Point, PoseStamped
 from std_msgs.msg import Int64
 from turtlesim.msg import Pose
 from std_srvs.srv import Empty
@@ -17,20 +17,26 @@ class eater(Node):
     def __init__(self):
         super().__init__('eater_node')
         self.pose = None
-        self.queue = [] 
+        self.queue = []
         self.max_pizzas = None
         self.spawned_pizzas = 0
         self.eaten_pizzas = 0
         self.mode = 'PIZZA'
-        self.escape_target = None 
-        self._masterkey_published = False 
+        self.escape_target = None
+        self._masterkey_published = False
+
+        # pubs/subs
         self.cmd_pub = self.create_publisher(Twist, '/turtle1/cmd_vel', 10)
         self.masterkey_pub = self.create_publisher(Int64, '/masterkey', 10)
         self.create_subscription(Pose, '/turtle1/pose', self._pose_cb, 10)
         self.create_subscription(Point, '/mouse_position', self._gui_click_cb, 10)
-        self.create_subscription(PointStamped, '/clicked_point', self._rviz_click_cb, 10)
+
+        # IMPORTANT: RViz2's 2D Nav Goal publishes geometry_msgs/PoseStamped on /goal_pose
+        self.create_subscription(PoseStamped, '/goal_pose', self._rviz_click_cb, 10)
+
         self.create_subscription(Int64, '/max_pizza', self._max_pizza_cb, 10)
 
+        # services
         self.eat_cli = self.create_client(Empty, '/turtle1/eat')
         self.spawn_pizza_cli = self.create_client(GivePosition, '/spawn_pizza')
 
@@ -43,15 +49,17 @@ class eater(Node):
         self.max_pizzas = max(0, int(msg.data))
         self.get_logger().info(f'max_pizzas set to {self.max_pizzas}')
         if self.eaten_pizzas >= self.max_pizzas:
-            self.mode = 'ESCAPE' 
+            self.mode = 'ESCAPE'
 
     def _gui_click_cb(self, msg: Point):
         x, y = self._clip(msg.x, msg.y)
         self._handle_click(x, y)
 
-    def _rviz_click_cb(self, msg: PointStamped):
-        tx = msg.point.x + 5.44
-        ty = msg.point.y + 5.44
+    # UPDATED: use PoseStamped from RViz2's /goal_pose
+    def _rviz_click_cb(self, msg: PoseStamped):
+    
+        tx = msg.pose.position.x + 5.44
+        ty = msg.pose.position.y + 5.44
         x, y = self._clip(tx, ty)
         self._handle_click(x, y)
 
@@ -66,9 +74,7 @@ class eater(Node):
             self._spawn_pizza(x, y)
             self.queue.append({"x": x, "y": y, "kind": "PIZZA"})
             self.spawned_pizzas += 1
-            self.get_logger().info(
-                f'Spawned pizza'
-            )
+            self.get_logger().info('Spawned pizza')
             if self.spawned_pizzas >= self.max_pizzas:
                 self.get_logger().info('incase')
         else:
@@ -110,7 +116,7 @@ class eater(Node):
 
         if self.queue:
             active_goal = (self.queue[0]["x"], self.queue[0]["y"])
-            active_kind = self.queue[0]["kind"] 
+            active_kind = self.queue[0]["kind"]
         elif self.mode == 'ESCAPE' and self.escape_target is not None:
             active_goal = self.escape_target
             active_kind = "ESCAPE"

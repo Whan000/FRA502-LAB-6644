@@ -5,23 +5,28 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from turtlesim.msg import Pose
 from std_msgs.msg import Int64
-from std_srvs.srv import Empty
+from turtlesim.srv import Kill   
 import math as m
 
 
 class killer(Node):
     def __init__(self):
         super().__init__('killer_node')
-        self.self_pose = None   
-        self.target_pose = None       
-        self.follow_enabled = False      
-        self.is_turtle_spawned = False  
-        self.target_eaten = False 
+        self.self_pose = None
+        self.target_pose = None
+        self.follow_enabled = False
+        self.is_turtle_spawned = False
+        self.target_removed = False
+        self.target_name = 'turtle1' 
         self.cmd_pub = self.create_publisher(Twist, '/turtle2/cmd_vel', 10)
         self.create_subscription(Pose,  '/turtle2/pose', self._self_pose_cb, 10)
         self.create_subscription(Pose,  '/turtle1/pose', self._target_pose_cb, 10)
         self.create_subscription(Int64, '/masterkey',    self._masterkey_cb,  10)
-        self.eat_cli = self.create_client(Empty, '/turtle2/eat')
+
+    
+        self.remove_cli = self.create_client(Kill, '/remove_turtle')
+        self.kill_cli   = self.create_client(Kill, '/kill')
+
         self.create_timer(0.01, self._timer_cb)
 
     def _self_pose_cb(self, msg: Pose):
@@ -32,14 +37,14 @@ class killer(Node):
         self.target_pose = (msg.x, msg.y, msg.theta)
 
     def _masterkey_cb(self, msg: Int64):
-        if self.target_eaten:
+        if self.target_removed:
             return
         self.follow_enabled = (int(msg.data) == 1)
         if not self.follow_enabled:
             self._cmdvel(0.0, 0.0)
 
     def _timer_cb(self):
-        if self.target_eaten:
+        if self.target_removed:
             self._cmdvel(0.0, 0.0)
             return
 
@@ -57,26 +62,45 @@ class killer(Node):
         dist    = (dx*dx + dy*dy) ** 0.5
         bearing = m.atan2(dy, dx)
         ang_err = m.atan2(m.sin(bearing - th), m.cos(bearing - th))
+
         K_lin, K_ang = 5.0, 10.0
         vx = max(-5.0,  min(K_lin * dist,    5.0))
         wz = max(-10.0, min(K_ang * ang_err, 10.0))
+
         if dist < 0.4:
             self._cmdvel(0.0, 0.0)
-            self._eat()
+            self._remove_target()  
             return
+
         self._cmdvel(vx, wz)
-    def _eat(self):
-        if not self.target_eaten:
-            self.target_eaten = True
+
+    def _remove_target(self):
+        """Attempt /remove_turtle (Kill), else fall back to /kill (Kill)."""
+        if self.target_removed:
+            return
+
+
+        req = Kill.Request()
+        req.name = self.target_name
+
+        called = False
+
+        if self.remove_cli.wait_for_service(timeout_sec=0.2):
+            self.remove_cli.call_async(req)
+            called = True
+            self.get_logger().info(f'Removal requested via /remove_turtle for {self.target_name}')
+
+        elif self.kill_cli.wait_for_service(timeout_sec=0.2):
+            self.kill_cli.call_async(req)
+            called = True
+            self.get_logger().info(f'Removal requested via /kill for {self.target_name}')
+
+        if called:
+            self.target_removed = True
             self.follow_enabled = False
             self._cmdvel(0.0, 0.0)
-
-            if not self.eat_cli.wait_for_service(timeout_sec=0.2):
-                self.get_logger().warn('Unavail')
-                return
-
-            self.eat_cli.call_async(Empty.Request())
-            self.get_logger().info('Target Destroyyyyyyyyyyyyyyyy')
+        else:
+            self.get_logger().warn('No removal service available (/remove_turtle or /kill).')
 
     def _cmdvel(self, v, w):
         msg = Twist()
