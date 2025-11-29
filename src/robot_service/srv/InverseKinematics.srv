@@ -1,0 +1,7 @@
+geometry_msgs/Pose target_pose
+
+---
+
+bool success
+float64[] joint_positions  # Solution: [q1, q2, q3]
+string message

@@ -1,0 +1,7 @@
+bool request  # true to request a new random pose
+
+---
+
+bool success
+geometry_msgs/Pose target_pose
+string message

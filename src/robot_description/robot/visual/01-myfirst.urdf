@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<robot name="robot">
+    <link name="link_0">
+        <visual>
+            <geometry>
+                <mesh filename="package://robot_description/meshes/link_0.stl"/>
+            </geometry>
+        </visual>
+    </link>
+    <joint name="base_to_link1" type="revolute">
+        <axis xyz="0 0 1"/>
+        <limit effort="100" lower="-1.5708" upper="1.5708" velocity="1.0"/>
+        <origin rpy="0 0 0" xyz="0 0 0.2"/>
+        <parent link="link_0"/>
+        <child link="link_1"/>
+    </joint>
+    <link name="link_1">
+        <visual>
+            <geometry>
+                <mesh filename="package://robot_description/meshes/link_1.stl"/>
+            </geometry>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+        </visual>
+    </link>
+    <joint name="link1_link2" type="revolute">
+        <axis xyz="0 0 1"/>
+        <limit effort="100" lower="-1.5708" upper="1.5708" velocity="1.0"/>
+        <origin rpy="1.57 0 0" xyz="0 -0.12 0"/>
+        <parent link="link_1"/>
+        <child link="link_2"/>
+    </joint>
+    <link name="link_2">
+        <visual>
+            <geometry>
+                <mesh filename="package://robot_description/meshes/link_2.stl"/>
+            </geometry>
+            <origin rpy="3.14 0 0" xyz="0 0 0"/>
+        </visual>
+    </link>
+    <joint name="link2_link3" type="revolute">
+        <axis xyz="0 0 1"/>
+        <limit effort="100" lower="-1.5708" upper="1.5708" velocity="1.0"/>
+        <origin rpy="0 0 0" xyz="0.25 0 -0.1"/>
+        <parent link="link_2"/>
+        <child link="link_3"/>
+    </joint>
+    <link name="link_3">
+        <visual>
+            <geometry>
+                <mesh filename="package://robot_description/meshes/link_3.stl"/>
+            </geometry>
+            <origin rpy="3.14 0 0" xyz="0 0 0"/>
+        </visual>
+    </link>
+    <joint name="link3_end" type="fixed">
+        <origin rpy="0 0 0" xyz="0.28 0 0"/>
+        <parent link="link_3"/>
+        <child link="end_effector"/>
+    </joint>
+    <link name="end_effector">
+        <visual>
+            <geometry>
+                <mesh filename="package://robot_description/meshes/end_effector.stl"/>
+            </geometry>
+            <origin rpy="0 1.5708 0" xyz="0 0 0"/>
+        </visual>
+    </link>
+</robot>
