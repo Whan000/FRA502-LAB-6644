@@ -67,7 +67,7 @@ source install/setup.bash
 
 # 4. Add to bashrc
 echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-echo "source ~/Desktop/FUN4-main/install/setup.bash" >> ~/.bashrc
+echo "source ~/Desktop/FRA502-LAB-6644/install/setup.bash" >> ~/.bashrc
 
 # 5. Run
 ros2 launch robot_description simple_display.launch.py
@@ -206,14 +206,14 @@ cd FRA502-LAB-6644
 
 ```bash
 # Build all packages
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 colcon build
 
 # Source the workspace
 source install/setup.bash
 
 # Add to bashrc for automatic sourcing
-echo "source ~/Desktop/FUN4-main/install/setup.bash" >> ~/.bashrc
+echo "source ~/Desktop/FRA502-LAB-6644/install/setup.bash" >> ~/.bashrc
 
 # Verify service interfaces
 ros2 interface list | grep robot_service
@@ -228,7 +228,7 @@ ros2 interface list | grep robot_service
 ## File Structure
 
 ```
-FUN4-main/
+FRA502-LAB-6644/
 ├── README.md                           # This file
 │
 ├── src/
@@ -300,7 +300,7 @@ FUN4-main/
 Start everything with one command:
 
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 launch robot_description simple_display.launch.py
 ```
@@ -318,35 +318,35 @@ Open separate terminals:
 
 **Terminal 1 - Controller:**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 run robot_description controller.py
 ```
 
 **Terminal 2 - GUI:**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 run robot_description OperatorGUI.py
 ```
 
 **Terminal 3 - Random Pose Node:**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 run robot_description random_pose_node.py
 ```
 
 **Terminal 4 - RViz2:**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 rviz2
 ```
 
 **Terminal 5 - Keyboard Teleop (Optional):**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 run robot_description teleop_jog_keyboard.py
 ```
@@ -379,7 +379,7 @@ The `teleop_jog_keyboard.py` node provides direct keyboard control for robot tel
 
 **Method 1: Standalone**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 source install/setup.bash
 ros2 run robot_description teleop_jog_keyboard.py
 ```
@@ -789,6 +789,7 @@ Automatic random target reaching with timeout.
 
 ### High-Level Architecture
 
+![DIA](image/DIA.png)
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         User Layer                          │
@@ -1144,7 +1145,7 @@ source ~/.bashrc
 
 **Solution:**
 ```bash
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 colcon build --packages-select robot_service
 source install/setup.bash
 ```
@@ -1173,7 +1174,7 @@ sudo apt install python3-tk
 ros2 interface list | grep robot_service
 
 # If not found:
-cd ~/Desktop/FUN4-main
+cd ~/Desktop/FRA502-LAB-6644
 colcon build
 source install/setup.bash
 ```
