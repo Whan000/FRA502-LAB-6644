@@ -61,7 +61,7 @@ pip3 install numpy roboticstoolbox-python spatialmath-python scipy matplotlib
 # 3. Clone and build
 cd ~/Desktop
 git clone -b LAB4 https://github.com/Whan000/FRA502-LAB-6644.git
-cd FUN4-main
+cd FRA502-LAB-6644
 colcon build
 source install/setup.bash
 
@@ -199,7 +199,7 @@ cd ~/Desktop
 
 # Clone repository
 git clone -b LAB4 https://github.com/Whan000/FRA502-LAB-6644.git
-cd FUN4-main
+cd FRA502-LAB-6644
 ```
 
 #### 5. Build Workspace
@@ -636,7 +636,7 @@ User presses key → Update velocity → Publish at 20Hz → Apply decay
 ```bash
 $ ros2 run robot_description teleop_jog_keyboard.py
 
-                TELEOP JOG KEYBOARD CONTROL - LAB 4               
+                TELEOP JOG KEYBOARD CONTROL              
                      TO_WF + TO_EF SUPPORT                        
 
 CONTROLS: w/s(±X) a/d(±Y) q/e(±Z) f(toggle) +/-(speed) 0(stop) x(quit) 
