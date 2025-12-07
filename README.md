@@ -56,7 +56,8 @@ sudo apt update && sudo apt install ros-humble-desktop ros-dev-tools -y
 
 # 2. Install dependencies
 sudo apt install python3-pip python3-tk ros-humble-joint-state-publisher ros-humble-robot-state-publisher -y
-pip3 install numpy roboticstoolbox-python spatialmath-python scipy matplotlib
+pip3 install roboticstoolbox-python spatialmath-python scipy matplotlib
+pip3 install numpy==1.23.4 --force-reinstall
 
 # 3. Clone and build
 cd ~/Desktop
@@ -185,7 +186,7 @@ ros2 --version
 sudo apt install python3-pip python3-tk -y
 
 # Install robotics libraries
-pip3 install numpy
+pip3 install numpy==1.23.4 --force-reinstall
 pip3 install roboticstoolbox-python
 pip3 install spatialmath-python
 pip3 install scipy matplotlib
