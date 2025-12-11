@@ -24,8 +24,8 @@ class AdvancedOperatorGUI(Node):
     def __init__(self):
         super().__init__('advanced_operator_gui')
         
-        # ROS Publishers
-        self.joint_publisher_ = self.create_publisher(JointState, 'joint_states', 10)
+        # ROS Publishers (GUI publishes joint commands, not state)
+        self.joint_publisher_ = self.create_publisher(JointState, '/gui/joint_commands', 10)
         self.mode_publisher_ = self.create_publisher(String, 'control_mode', 10)
         
         # NEW: Speed control publisher for AM mode
@@ -36,13 +36,13 @@ class AdvancedOperatorGUI(Node):
         
         # Ghost trail publisher (using Path for smooth visualization)
         self.trail_pub = self.create_publisher(Path, '/end_effector_path', 10)
+
+        # Teleoperation publisher for TO mode velocity control (with namespace)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/gui/cmd_vel', 10)
         
-        # Teleoperation publisher
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        
-        # ROS Subscribers
+        # ROS Subscribers (with namespaces)
         self.target_subscriber = self.create_subscription(
-            PoseStamped, '/target', self.target_callback, 10)
+            PoseStamped, '/random_pose/target', self.target_callback, 10)
         self.end_effector_subscriber = self.create_subscription(
             PoseStamped, '/end_effector', self.end_effector_callback, 10)
         
@@ -544,13 +544,13 @@ class AdvancedOperatorGUI(Node):
         ipk_btn_frame = tk.Frame(ipk_frame, bg=self.colors['bg_control'])
         ipk_btn_frame.pack(pady=5)
         
-        # Solve and Go button
-        solve_btn = tk.Button(ipk_btn_frame, text="SOLVE & GO",
+        # Solve and Go button - STORE REFERENCE FOR ENABLE/DISABLE
+        self.solve_btn = tk.Button(ipk_btn_frame, text="SOLVE & GO",
                              command=self.ipk_solve_and_go,
                              font=('Courier', 8, 'bold'),
                              bg='#2a4a2a', fg=self.colors['text'],
                              relief='raised', bd=2)
-        solve_btn.pack(side='left', padx=2)
+        self.solve_btn.pack(side='left', padx=2)
         
         # Workspace visualization button (simple show only)
         workspace_btn = tk.Button(ipk_frame, text="SHOW TASK SPACE",
@@ -697,7 +697,7 @@ class AdvancedOperatorGUI(Node):
             self.frame_status.config(text="(End effector coordinates)")
             
             # Set TO_EF mode in controller if currently in TO mode
-            if self.current_mode == "TO":
+            if self.current_mode in ["TO", "TO_WF", "TO_EF"]:
                 self.call_service_mode("TO_EF")
                 # Republish velocity so it takes effect immediately in new frame
                 self.publish_velocity()
@@ -709,7 +709,7 @@ class AdvancedOperatorGUI(Node):
             self.frame_status.config(text="(World coordinates)")
             
             # Set TO_WF mode in controller if currently in TO mode
-            if self.current_mode == "TO":
+            if self.current_mode in ["TO", "TO_WF", "TO_EF"]:
                 self.call_service_mode("TO_WF")
                 # Republish velocity so it takes effect immediately in new frame
                 self.publish_velocity()
@@ -722,13 +722,19 @@ class AdvancedOperatorGUI(Node):
     def on_mode_change(self):
         """Handle mode change from radio buttons - automatically send service calls"""
         new_mode = self.mode_var.get()
-        
+
         # DEBUG: Always log mode changes
         self.get_logger().info(f" GUI Mode change detected: {self.current_mode} → {new_mode}")
-        
+
         if new_mode != self.current_mode:
             self.current_mode = new_mode
-            self.mode_display.config(text=new_mode)
+            # Display mode with readable names (show TO_WF/TO_EF distinction)
+            display_name = {
+                'TO_WF': 'TO_WF',
+                'TO_EF': 'TO_EF',
+                'TO': 'TO_WF',  # Default TO to TO_WF
+            }.get(new_mode, new_mode)
+            self.mode_display.config(text=display_name)
             
             # Publish mode change
             mode_msg = String()
@@ -763,6 +769,13 @@ class AdvancedOperatorGUI(Node):
                 self.call_service_mode("AM")
         else:
             self.get_logger().info(f" Mode {new_mode} already active, no change needed")
+        
+        # ADDED: Enable/disable SOLVE & GO button based on mode
+        if hasattr(self, 'solve_btn'):
+            if new_mode == "IPK":
+                self.solve_btn.config(state='normal', bg='#2a4a2a')
+            else:
+                self.solve_btn.config(state='disabled', bg='#1a1a1a')
         
         self.get_logger().info(f" Mode change to {new_mode} completed")
     
@@ -952,32 +965,28 @@ class AdvancedOperatorGUI(Node):
                 self.current_vx = 0.0
             else:  # Add/subtract to current velocity
                 self.current_vx += value
+                # Clamp immediately after addition
+                self.current_vx = max(-0.1, min(0.1, self.current_vx))
             self.vx_display.config(text=f"{self.current_vx:+.3f}")
         elif axis == 'y':
             if value == 0.0:  # Zero button - reset to zero
                 self.current_vy = 0.0
             else:  # Add/subtract to current velocity
                 self.current_vy += value
+                # Clamp immediately after addition
+                self.current_vy = max(-0.1, min(0.1, self.current_vy))
             self.vy_display.config(text=f"{self.current_vy:+.3f}")
         elif axis == 'z':
             if value == 0.0:  # Zero button - reset to zero
                 self.current_vz = 0.0
             else:  # Add/subtract to current velocity
                 self.current_vz += value
+                # Clamp immediately after addition
+                self.current_vz = max(-0.1, min(0.1, self.current_vz))
             self.vz_display.config(text=f"{self.current_vz:+.3f}")
         
-        # Clamp velocities to reasonable limits
-        self.current_vx = max(-0.1, min(0.1, self.current_vx))
-        self.current_vy = max(-0.1, min(0.1, self.current_vy)) 
-        self.current_vz = max(-0.1, min(0.1, self.current_vz))
-        
-        # Update displays with clamped values
-        self.vx_display.config(text=f"{self.current_vx:+.3f}")
-        self.vy_display.config(text=f"{self.current_vy:+.3f}")
-        self.vz_display.config(text=f"{self.current_vz:+.3f}")
-        
         # Auto-start continuous velocity publishing if in TO mode
-        if self.current_mode == "TO" and not self.to_active:
+        if self.current_mode in ["TO", "TO_WF", "TO_EF"] and not self.to_active:
             if abs(self.current_vx) > 0.001 or abs(self.current_vy) > 0.001 or abs(self.current_vz) > 0.001:
                 self.start_teleoperation()
         # Auto-stop if all velocities are zero
@@ -1035,7 +1044,7 @@ class AdvancedOperatorGUI(Node):
     
     def start_teleoperation(self):
         """Start sending velocity commands from GUI buttons"""
-        if self.current_mode != "TO":
+        if self.current_mode not in ["TO", "TO_WF", "TO_EF"]:
             self.service_response_label.config(text=" Set TO mode first!", fg=self.colors['warn'])
             return
         
@@ -1134,16 +1143,44 @@ class AdvancedOperatorGUI(Node):
                     )
                 else:
                     self.service_response_label.config(text=f" {response.message}", fg=self.colors['text'])
-                
-                self.current_mode = mode if mode not in ['TO_WF', 'TO_EF'] else 'TO'
-                self.mode_display.config(text=self.current_mode)
+
+                # Store and display the actual mode (including TO_WF/TO_EF distinction)
+                self.current_mode = mode
+                # Display mode with readable names
+                display_name = {
+                    'TO_WF': 'TO_WF',
+                    'TO_EF': 'TO_EF',
+                    'TO': 'TO_WF',  # Default TO to TO_WF
+                }.get(mode, mode)
+                self.mode_display.config(text=display_name)
                 self.get_logger().info(f"Successfully set mode to {mode}: {response.message}")
+
+                # Auto-start teleoperation if entering TO mode with non-zero velocities
+                if mode in ['TO', 'TO_WF', 'TO_EF']:
+                    if abs(self.current_vx) > 0.001 or abs(self.current_vy) > 0.001 or abs(self.current_vz) > 0.001:
+                        if not self.to_active:
+                            self.start_teleoperation()
+                            self.get_logger().info("Auto-started teleoperation with existing velocities")
             else:
+                # Service call succeeded but mode change failed - revert GUI state
                 self.service_response_label.config(text=f" {response.message}", fg=self.colors['warn'])
                 self.get_logger().error(f"Failed to set mode {mode}: {response.message}")
+
+                # Revert radio button to previous mode
+                if self.current_mode:
+                    self.mode_var.set(self.current_mode)
+                else:
+                    self.mode_var.set("MANUAL")
         except Exception as e:
+            # Service call failed completely - revert GUI state
             self.service_response_label.config(text=f" Service error: {e}", fg=self.colors['warn'])
             self.get_logger().error(f"SetMode service error: {e}")
+
+            # Revert radio button to previous mode
+            if self.current_mode:
+                self.mode_var.set(self.current_mode)
+            else:
+                self.mode_var.set("MANUAL")
     
     def ipk_solve_and_go(self):
         """IPK mode: solve IK and move to target position"""
@@ -1153,6 +1190,11 @@ class AdvancedOperatorGUI(Node):
             
         if not hasattr(self, 'ik_client') or not self.ik_client.service_is_ready():
             self.service_response_label.config(text="IK service not ready!", fg=self.colors['warn'])
+            return
+        
+        # ADDED: Check if in IPK mode
+        if self.current_mode != "IPK":
+            self.service_response_label.config(text=" Set IPK mode first!", fg=self.colors['warn'])
             return
         
         try:

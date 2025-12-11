@@ -15,14 +15,15 @@ except ImportError:
 class RandomPoseNode(Node):
     def __init__(self):
         super().__init__('random_pose_node')
-        
-        self.target_pub = self.create_publisher(PoseStamped, '/target', 10)
-        
+
+        # Publisher for random target poses (Part 1.2 requirement) with namespace
+        self.target_pub = self.create_publisher(PoseStamped, '/random_pose/target', 10)
+
         if SERVICES_AVAILABLE:
             self.random_pose_srv = self.create_service(
                 GetRandomPose, 'get_random_pose', self.get_random_pose_callback)
-        
-        self.get_logger().info("Random Pose Node initialized")
+
+        self.get_logger().info("Random Pose Node initialized - publishing to /random_pose/target")
     
     def generate_random_pose(self):
         try:
@@ -128,7 +129,15 @@ class RandomPoseNode(Node):
                 return False
         
         return True
-    
+
+    def publish_pose_stamped(self, pose):
+        """Publish pose to /target topic for visualization in RVIZ"""
+        pose_stamped = PoseStamped()
+        pose_stamped.header.stamp = self.get_clock().now().to_msg()
+        pose_stamped.header.frame_id = "link_0"
+        pose_stamped.pose = pose
+        self.target_pub.publish(pose_stamped)
+
     def get_random_pose_callback(self, request, response):
         try:
             if request.request:
@@ -137,7 +146,8 @@ class RandomPoseNode(Node):
                 response.success = True
                 response.target_pose = random_pose
                 response.message = f"Pose generated"
-                
+
+                # Publish to /target for RVIZ visualization (Part 1.2 requirement)
                 self.publish_pose_stamped(random_pose)
                 
             else:
@@ -151,13 +161,6 @@ class RandomPoseNode(Node):
             response.message = f"Error: {str(e)}"
         
         return response
-    
-    def publish_pose_stamped(self, pose):
-        pose_stamped = PoseStamped()
-        pose_stamped.header.stamp = self.get_clock().now().to_msg()
-        pose_stamped.header.frame_id = "link_0"
-        pose_stamped.pose = pose
-        self.target_pub.publish(pose_stamped)
 
 def main(args=None):
     rclpy.init(args=args)

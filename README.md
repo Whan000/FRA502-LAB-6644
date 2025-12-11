@@ -88,11 +88,12 @@ This project implements a comprehensive control system for a 3-DOF robotic manip
 - **Real-time GUI**: Professional Tkinter-based operator interface with clean layout
 - **High Precision**: 0.1mm tolerance for IPK and TO modes, 2mm for AM mode
 - **Speed Control**: Real-time adjustable speed (0.5x to 10x)
-- **Safety Systems**: Singularity detection, workspace boundaries, joint limits
+- **Safety Systems**: Singularity detection, joint limits
 - **RViz2 Integration**: Real-time visualization with ghost trail and target markers
 - **Performance**: 90-95% success rate in AM mode, <5% CPU usage
 
 ### Robot Specifications
+![WS](image/wsrrr.png)
 
 | Parameter | Value |
 |-----------|-------|
@@ -108,23 +109,22 @@ This project implements a comprehensive control system for a 3-DOF robotic manip
 ## Features
 
 ### Control System
-- ✅ **MANUAL Mode**: Direct joint control via sliders
-- ✅ **IPK Mode**: Inverse kinematics for position control (0.1mm precision)
-- ✅ **TO Mode**: Velocity-based teleoperation (World/End-Effector frames)
-- ✅ **AM Mode**: Autonomous random target reaching with 10s timeout
+- **MANUAL Mode**: Direct joint control via sliders
+- **IPK Mode**: Inverse kinematics for position control (0.1mm precision)
+- **TO Mode**: Velocity-based teleoperation (World/End-Effector frames)
+- **AM Mode**: Autonomous random target reaching with 10s timeout
 
 ### Safety & Monitoring
-- ✅ Real-time singularity detection
-- ✅ Workspace boundary protection (0.1mm margin)
-- ✅ Joint limit enforcement (±90°)
+- Real-time singularity detection
+- Joint limit enforcement (±90°)
 
 ### User Interface
-- ✅ GUI compatible
-- ✅ Real-time status displays (mode, services, singularity)
-- ✅ Speed control slider (0.5x - 10x)
-- ✅ Reference frame switching (World/End-Effector)
-- ✅ Ghost trail visualization
-- ✅ Target position markers
+- GUI compatible
+- Real-time status displays (mode, services, singularity)
+- Speed control slider (0.5x - 10x)
+- Reference frame switching (World/End-Effector)
+- Ghost trail visualization
+- Target position markers
 
 ---
 
@@ -608,12 +608,12 @@ The keyboard teleop works alongside the GUI:
 4. Use keyboard for fine control
 5. Monitor status in GUI
 
-**Note:** Both GUI and keyboard can publish to `/cmd_vel` simultaneously. Last published command takes priority.
+**Note:** Both GUI (`/gui/cmd_vel`) and keyboard (`/teleop/cmd_vel`) can publish velocity commands simultaneously. The controller uses a priority system where teleop commands override GUI commands.
 
 ### Technical Details
 
 **Publishers:**
-- `/cmd_vel` (geometry_msgs/Twist) - Velocity commands at 20 Hz
+- `/teleop/cmd_vel` (geometry_msgs/Twist) - Velocity commands at 20 Hz
 
 **Service Clients:**
 - `/set_mode` (robot_service/SetMode) - For frame switching
@@ -714,8 +714,7 @@ Velocity-based control in World or End-Effector frame.
 **Features:**
 - Velocity control (Vx, Vy, Vz)
 - Reference frame switching
-- Workspace boundary protection
-- 0.1mm boundary precision
+- Joint limit protection
 
 **Frames:**
 - **WORLD FRAME (TO_WF)**: Velocities relative to base frame
@@ -743,7 +742,7 @@ Automatic random target reaching with timeout.
 - Real-time speed control (0.1x - 3.0x)
 - 10-second timeout per target
 - 2mm tolerance
-- Stuck detection (3s) with auto-recovery
+- Stuck detection (10s) with auto-recovery
 
 **Usage:**
 1. Click "AM" button
@@ -807,9 +806,11 @@ Automatic random target reaching with timeout.
 ├─────────────────────────────────────────────────────────────┤
 │  Topics:                    Services:                       │
 │  • /joint_states            • /set_mode                     │
-│  • /cmd_vel                 • /inverse_kinematics           │
-│  • /end_effector            • /get_random_pose              │
-│  • /target                                                  │
+│  • /gui/cmd_vel             • /inverse_kinematics           │
+│  • /teleop/cmd_vel          • /get_random_pose              │
+│  • /gui/joint_commands                                      │
+│  • /end_effector                                            │
+│  • /random_pose/target                                      │
 │  • /singularity_warning                                     │
 │  • /gui_speed                                               │
 └────────────┬────────────────┬──────────────────┬────────────┘
@@ -977,29 +978,7 @@ Robot cleared singularity region (manipulability: 0.001234)
 2. Move joints away from singular configuration
 3. Resume normal operation
 
-### 2. Workspace Boundaries
-![WS](image/wsrrr.png)
-
-**Limits:**
-- Radius: 0.01m to 0.55m
-- Height: -0.35m to 0.75m
-- Boundary margin: 0.1mm
-
-**Protection:**
-- Boundary checking
-- Stops at limits
-- 99.98% workspace utilization
-- RViz2 boundary visualization
-
-**Behavior:**
-```
-if at_workspace_boundary(x, y, z, margin=0.0001):
-    Stop all motion
-    Prevent boundary crossing
-    User can move away only
-```
-
-### 3. Joint Limits
+### 2. Joint Limits
 
 
 **Enforcement:**
@@ -1009,7 +988,7 @@ q_max = [π/2, π/2, π/2]
 new_q = np.clip(new_q, q_min, q_max)
 ```
 
-### 4. Velocity Limiting
+### 3. Velocity Limiting
 
 **Limits:**
 - Teleoperation: ±0.1 m/s
@@ -1020,11 +999,11 @@ new_q = np.clip(new_q, q_min, q_max)
 - Gradual acceleration/deceleration
 - Velocity decay
 
-### 5. Timeout Protection (AM Mode)
+### 4. Timeout Protection (AM Mode)
 
 **System:**
 - 10-second timeout per target
-- Stuck detection (3 seconds)
+- Stuck detection (10 seconds)
 - Automatic recovery
 - New target request
 
@@ -1040,25 +1019,41 @@ else:
 ---
 
 ## ROS2 Topics & Services
-
+![DIA](image/DIA.png)
 ### Published Topics
 
-| Topic | Type | Rate | Description |
-|-------|------|------|-------------|
-| `/joint_states` | `sensor_msgs/JointState` | 1000 Hz | Current joint positions/velocities |
-| `/end_effector` | `geometry_msgs/PoseStamped` | 1000 Hz | End-effector pose |
-| `/target` | `geometry_msgs/PoseStamped` | On change | Target position |
-| `/singularity_warning` | `std_msgs/Bool` | 1000 Hz | Singularity status (True/False) |
-| `/end_effector_path` | `nav_msgs/Path` | 10 Hz | Ghost trail path |
-| `/gui_speed` | `std_msgs/Float64` | On change | Speed multiplier (0.1-3.0) |
+
+
+| Topic | Type | Rate | Publisher | Description |
+|-------|------|------|-----------|-------------|
+| `/joint_states` | `sensor_msgs/JointState` | 1000 Hz | Controller | Current joint positions/velocities |
+| `/end_effector` | `geometry_msgs/PoseStamped` | 1000 Hz | Controller | End-effector pose |
+| `/random_pose/target` | `geometry_msgs/PoseStamped` | On change | RandomPoseNode | Target position for AM mode |
+| `/singularity_warning` | `std_msgs/Bool` | 1000 Hz | Controller | Singularity status (True/False) |
+| `/end_effector_path` | `nav_msgs/Path` | 10 Hz | GUI | Ghost trail path |
+| `/gui_speed` | `std_msgs/String` | On change | GUI | Speed multiplier |
+| `/gui/cmd_vel` | `geometry_msgs/Twist` | 20 Hz | GUI | GUI velocity commands (TO mode) |
+| `/teleop/cmd_vel` | `geometry_msgs/Twist` | 20 Hz | TeleopKeyboard | Keyboard velocity commands (TO mode) |
+| `/gui/joint_commands` | `sensor_msgs/JointState` | On change | GUI | Joint position commands (MANUAL mode) |
 
 ### Subscribed Topics
 
-| Topic | Type | Description |
-|-------|------|-------------|
-| `/cmd_vel` | `geometry_msgs/Twist` | Teleoperation velocity commands |
-| `/gui_speed` | `std_msgs/Float64` | Speed control from GUI |
-| `/singularity_warning` | `std_msgs/Bool` | Singularity warnings for GUI |
+| Topic | Type | Subscriber | Description |
+|-------|------|------------|-------------|
+| `/gui/cmd_vel` | `geometry_msgs/Twist` | Controller | GUI velocity commands |
+| `/teleop/cmd_vel` | `geometry_msgs/Twist` | Controller | Keyboard velocity commands |
+| `/gui/joint_commands` | `sensor_msgs/JointState` | Controller | Joint position commands from GUI |
+| `/gui_speed` | `std_msgs/String` | Controller | Speed control from GUI |
+| `/singularity_warning` | `std_msgs/Bool` | GUI | Singularity warnings display |
+| `/random_pose/target` | `geometry_msgs/PoseStamped` | GUI | Target position display |
+
+### Velocity Command Priority
+
+When both GUI and keyboard teleop publish velocity commands simultaneously, the controller uses a priority system:
+1. **Teleop keyboard** (`/teleop/cmd_vel`) - Highest priority
+2. **GUI** (`/gui/cmd_vel`) - Lower priority
+
+If teleop velocity is non-zero, it overrides GUI velocity. GUI velocity is only used when teleop velocity is zero.
 
 ### Services
 
@@ -1109,7 +1104,7 @@ velocity: [0.0, 0.0, 0.0]
 effort: []
 ```
 
-**cmd_vel:**
+**gui/cmd_vel or teleop/cmd_vel:**
 ```yaml
 linear:
   x: 0.01  # m/s in X direction

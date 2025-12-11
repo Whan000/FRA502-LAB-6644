@@ -47,14 +47,21 @@ class RobotController(Node):
         # State variables
         self.q = np.zeros(self.robot.n)
         self.target_pose = None
-        self.last_target_pose = None 
+        self.last_target_pose = None
         self.control_mode = None
         self.delta_q = 0.0
         self.task_space_velocity = np.zeros(3)
+        self.gui_velocity = np.zeros(3)      # Velocity from GUI
+        self.teleop_velocity = np.zeros(3)   # Velocity from teleop
         self.start_time = None
         self.waiting_for_new_pose = False
         self.move = False
         self.hz = 1000.0
+
+        # TO mode position tracking (for drift-free IK-based control)
+        self.to_virtual_position = None  # Virtual target position for TO mode
+        self.to_ik_counter = 0  # Counter for periodic IK solving
+        self.to_ik_interval = 5  # Solve IK every 5ms (200Hz for responsiveness)
 
         # Auto mode state
         self.auto_mode_active = False
@@ -62,21 +69,26 @@ class RobotController(Node):
         self.am_move_count = 0
         self.last_error = None
         self.stuck_counter = 0
-        self.stuck_threshold = 3000
+        self.stuck_threshold = 10000  # 10 seconds at 1000 Hz
         self.service_request_pending = False
         self.last_request_time = 0
         self.min_request_interval = 0.5
         self.target_reached = False
         self.in_singularity = False
+        self.at_boundary = False  # Track workspace boundary state
 
         # Publishers
         self.joint_pub = self.create_publisher(JointState, '/joint_states', 10)
-        self.target_pub = self.create_publisher(PoseStamped, '/target', 10)
         self.end_effector_pub = self.create_publisher(PoseStamped, '/end_effector', 10)
         self.singularity_pub = self.create_publisher(Bool, '/singularity_warning', 10)
         
-        # Subscribers
-        self.velocity_sub = self.create_subscription(Twist, '/cmd_vel', self.velocity_callback, 10)
+        # Subscribers for TO mode velocity control (with namespaces)
+        self.gui_cmd_vel_sub = self.create_subscription(Twist, '/gui/cmd_vel', self.gui_cmd_vel_callback, 10)
+        self.teleop_cmd_vel_sub = self.create_subscription(Twist, '/teleop/cmd_vel', self.teleop_cmd_vel_callback, 10)
+
+        # Subscriber for MANUAL mode joint commands from GUI
+        self.gui_joint_commands_sub = self.create_subscription(JointState, '/gui/joint_commands', self.gui_joint_commands_callback, 10)
+
         self.mode_sub = self.create_subscription(String, 'control_mode', self.mode_callback, 10)
         self.joint_state_sub = self.create_subscription(JointState, 'joint_states', self.joint_state_callback, 10)
         self.gui_speed_sub = self.create_subscription(String, 'gui_speed', self.gui_speed_callback, 10)
@@ -107,6 +119,9 @@ class RobotController(Node):
         elif mode == 'TO_WF' or mode == 'TO':
             self.control_mode = 'TO_WF'
             self.move = True
+            # Reset virtual position for drift-free IK-based control
+            self.to_virtual_position = None
+            self.to_ik_counter = 0
             self.check_singularity_and_warn()
             response.success = True
             response.message = "TO_WF Mode activated"
@@ -114,6 +129,9 @@ class RobotController(Node):
         elif mode == 'TO_EF':
             self.control_mode = 'TO_EF'
             self.move = True
+            # Reset virtual position for drift-free IK-based control
+            self.to_virtual_position = None
+            self.to_ik_counter = 0
             self.check_singularity_and_warn()
             response.success = True
             response.message = "TO_EF Mode activated"
@@ -158,8 +176,6 @@ class RobotController(Node):
                 self.set_ipk_target(x, y, z)
                 if self.control_mode == "MANUAL" or self.control_mode is None:
                     self.control_mode = "IPK"
-                
-                self.publish_pose(x, y, z)
             else:
                 response.success = False
                 response.joint_positions = []
@@ -268,9 +284,7 @@ class RobotController(Node):
                 self.last_error = None
                 self.stuck_counter = 0
                 self.target_reached = False  # Reset for new target
-                
-                self.publish_pose(random_pose.position.x, random_pose.position.y, random_pose.position.z)
-                
+
             else:
                 import threading
                 threading.Timer(1.0, lambda: self.request_random_pose()).start()
@@ -344,6 +358,7 @@ class RobotController(Node):
                         self.stuck_counter = 0
                     
                     if self.stuck_counter >= self.stuck_threshold:
+                        print(f"\r Deadline 10SEC Limit - Requesting new target", flush=True)
                         self.stuck_counter = 0
                         self.am_move_count += 1
                         import threading
@@ -385,6 +400,7 @@ class RobotController(Node):
                 
                 # Check if reached (2mm tolerance)
                 if position_error < 0.002 and not self.target_reached:
+                    print(f"\r TARGET REACHED (error: {position_error*1000:.2f}mm) - requesting new target", flush=True)
                     self.target_reached = True  # Mark as reached to prevent duplicates
                     self.am_move_count += 1
                     self.waiting_for_new_pose = False
@@ -395,6 +411,7 @@ class RobotController(Node):
                 if self.start_time is not None:
                     elapsed_time = time.time() - self.start_time
                     if elapsed_time >= 10.0 and not self.target_reached:
+                        print(f"\r TIMEOUT: 10 seconds elapsed - requesting new target", flush=True)
                         self.target_reached = True  # Mark to prevent duplicate timeout logs
                         self.am_move_count += 1
                         self.waiting_for_new_pose = False
@@ -407,52 +424,58 @@ class RobotController(Node):
                     self.am_startup_requested = True
                 self.publish_joints()
         
-        elif self.control_mode in ['TO_WF', 'TO', 'TO_EF'] and self.task_space_velocity.any():
-            J = self.robot.jacob0(self.q)
-            J_trans = J[0:3, :]
-            
-            if self.check_singularity_and_warn():
-                return
-            
-            fk_pose = self.robot.fkine(self.q)
-            current_x, current_y, current_z = fk_pose.t.flatten()
-            
-            # Check if at workspace boundary - if so, STOP all motion
-            if self.at_workspace_boundary(current_x, current_y, current_z):
-                return  # Stop completely at boundary, no sliding!
+        elif self.control_mode in ['TO_WF', 'TO', 'TO_EF']:
+            # Standard Jacobian velocity control
 
-            if self.control_mode == 'TO_EF':
-                R = fk_pose.R
-                desired_velocity_world = R @ self.task_space_velocity
-            else:
-                desired_velocity_world = self.task_space_velocity
+            # Only move if there's velocity command
+            if self.task_space_velocity.any():
+                J = self.robot.jacob0(self.q)
+                J_trans = J[0:3, :]
 
-            try:
-                desired_delta_q = np.linalg.pinv(J_trans) @ desired_velocity_world
-            except:
-                return
+                if self.check_singularity_and_warn():
+                    self.publish_joints()
+                    return
 
-            max_joint_step = 0.1
-            joint_step = np.clip(desired_delta_q, -max_joint_step, max_joint_step)
-            new_q = self.q + joint_step / self.hz
-            
-            q_min = np.array([-np.pi/2, -np.pi/2, -np.pi/2])
-            q_max = np.array([np.pi/2, np.pi/2, np.pi/2])
-            
-            fk_next = self.robot.fkine(new_q)
-            next_x, next_y, next_z = fk_next.t.flatten()
-            
-            # Double check: if next position out of workspace, don't move
-            if not self.in_workspace(next_x, next_y, next_z):
-                return
-            
-            new_q_clamped = np.clip(new_q, q_min, q_max)
-            
-            if not np.allclose(new_q, new_q_clamped, atol=1e-6):
-                self.q = new_q_clamped
-            else:
-                self.q = new_q
+                fk_pose = self.robot.fkine(self.q)
 
+                # Transform velocity to world frame if in EF mode
+                if self.control_mode == 'TO_EF':
+                    R = fk_pose.R
+                    desired_velocity_world = R @ self.task_space_velocity
+                else:
+                    desired_velocity_world = self.task_space_velocity
+
+                # Use pseudoinverse for joint velocities
+                try:
+                    J_pinv = np.linalg.pinv(J_trans)
+                    desired_delta_q = J_pinv @ desired_velocity_world
+                except:
+                    self.publish_joints()
+                    return
+
+                # Scale and limit joint velocities
+                max_joint_step = 0.1
+                joint_step = np.clip(desired_delta_q, -max_joint_step, max_joint_step)
+                new_q = self.q + joint_step / self.hz
+
+                # Clamp to joint limits
+                q_min = np.array([-np.pi/2, -np.pi/2, -np.pi/2])
+                q_max = np.array([np.pi/2, np.pi/2, np.pi/2])
+
+                # Validate next position is within reachable workspace
+                fk_next = self.robot.fkine(new_q)
+                next_x, next_y, next_z = fk_next.t.flatten()
+
+                # Check if next position is reachable (valid workspace)
+                if not self.in_workspace(next_x, next_y, next_z):
+                    # Outside workspace - stop moving
+                    self.publish_joints()
+                    return
+
+                # Apply validated joint positions
+                self.q = np.clip(new_q, q_min, q_max)
+
+            # Always publish joints in TO mode (even with zero velocity)
             self.publish_joints()
 
     def publish_joints(self):
@@ -473,52 +496,115 @@ class RobotController(Node):
             ee_msg.pose.position.y = float(ee_pos[1])
             ee_msg.pose.position.z = float(ee_pos[2])
             ee_msg.pose.orientation.w = 1.0
-            
+
             self.end_effector_pub.publish(ee_msg)
         except:
             pass
-
-    def publish_pose(self, x, y, z):
-        pose_msg = PoseStamped()
-        pose_msg.header.stamp = self.get_clock().now().to_msg()
-        pose_msg.header.frame_id = "link_0"
-        pose_msg.pose.position.x = float(x)
-        pose_msg.pose.position.y = float(y)
-        pose_msg.pose.position.z = float(z)
-        pose_msg.pose.orientation.w = 1.0
-        self.target_pub.publish(pose_msg)
 
     def joint_state_callback(self, msg):
         if len(msg.position) >= 3 and self.control_mode is None:
             self.q = np.array(msg.position[:3])
 
-    def velocity_callback(self, msg):
-        self.task_space_velocity = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
-    
+    def gui_cmd_vel_callback(self, msg):
+        """Handle velocity commands from GUI (/gui/cmd_vel)"""
+        if self.control_mode in ['TO_WF', 'TO', 'TO_EF']:
+            self.gui_velocity = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
+            self.update_active_velocity()
+
+    def teleop_cmd_vel_callback(self, msg):
+        """Handle velocity commands from teleop (/teleop/cmd_vel)"""
+        if self.control_mode in ['TO_WF', 'TO', 'TO_EF']:
+            self.teleop_velocity = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
+            self.update_active_velocity()
+
+    def update_active_velocity(self):
+        """Priority system: teleop has priority over GUI"""
+        teleop_active = np.linalg.norm(self.teleop_velocity) > 1e-6
+        gui_active = np.linalg.norm(self.gui_velocity) > 1e-6
+
+        if teleop_active:
+            # Teleop has priority
+            self.task_space_velocity = self.teleop_velocity
+        elif gui_active:
+            # GUI if no teleop input
+            self.task_space_velocity = self.gui_velocity
+        else:
+            # Both zero
+            self.task_space_velocity = np.zeros(3)
+
     def gui_speed_callback(self, msg):
         try:
             new_speed = float(msg.data)
             self.am_speed = new_speed
         except ValueError:
             pass
-    
+
+    def gui_joint_commands_callback(self, msg):
+        """Handle joint position commands from GUI (MANUAL mode)"""
+        # Only accept commands in MANUAL mode (when control_mode is None)
+        if self.control_mode is None and len(msg.position) >= 3:
+            self.q = np.array(msg.position[:3])
+            self.publish_joints()
+
     def in_workspace(self, x, y, z):
         rho2 = x**2 + y**2
         radius_check = (self.r_min**2 <= rho2 <= self.r_max**2)
         height_check = (self.z_min <= z <= self.z_max)
         return radius_check and height_check
-    
+
+    def warn_workspace_violation(self, x, y, z):
+        """Warn user which workspace constraint was violated"""
+        radius = np.sqrt(x**2 + y**2)
+
+        # Determine which constraint was violated
+        violated = []
+        if radius < self.r_min:
+            violated.append(f"INNER radius (r={radius:.4f}m < min={self.r_min:.4f}m)")
+        if radius > self.r_max:
+            violated.append(f"OUTER radius (r={radius:.4f}m > max={self.r_max:.4f}m)")
+        if z < self.z_min:
+            violated.append(f"LOWER height (z={z:.4f}m < min={self.z_min:.4f}m)")
+        if z > self.z_max:
+            violated.append(f"UPPER height (z={z:.4f}m > max={self.z_max:.4f}m)")
+
+        # Print warning once (avoid spam)
+        if not self.at_boundary:
+            self.at_boundary = True
+            for v in violated:
+                print(f"\rWS LIMIT: {v}", flush=True)
+
     def at_workspace_boundary(self, x, y, z, margin=0.0001):
         """Check if at actual workspace boundary (0.1mm tolerance - very strict!)"""
         radius = np.sqrt(x**2 + y**2)
-        
+
         # Check if at any boundary (within 0.1mm)
         at_min_radius = abs(radius - self.r_min) < margin
         at_max_radius = abs(radius - self.r_max) < margin
         at_min_height = abs(z - self.z_min) < margin
         at_max_height = abs(z - self.z_max) < margin
-        
-        return at_min_radius or at_max_radius or at_min_height or at_max_height
+
+        at_boundary = at_min_radius or at_max_radius or at_min_height or at_max_height
+
+        # Warn if at boundary
+        if at_boundary:
+            # Only print warning once when entering boundary (avoid spam)
+            if not self.at_boundary:
+                self.at_boundary = True
+                # Determine which boundary
+                if at_min_radius:
+                    print(f"\rWS LIMIT: Minimum radius boundary (r={radius:.4f}m)", flush=True)
+                elif at_max_radius:
+                    print(f"\rWS LIMIT: Maximum radius boundary (r={radius:.4f}m)", flush=True)
+                elif at_min_height:
+                    print(f"\rWS LIMIT: Minimum height boundary (z={z:.4f}m)", flush=True)
+                elif at_max_height:
+                    print(f"\rWS LIMIT: Maximum height boundary (z={z:.4f}m)", flush=True)
+        else:
+            # Reset flag when leaving boundary
+            if self.at_boundary:
+                self.at_boundary = False
+
+        return at_boundary
 
     def check_singularity_and_warn(self, manipulability_threshold=1e-3):
         J = self.robot.jacob0(self.q)

@@ -26,10 +26,10 @@ except ImportError:
 class TeleopJogKeyboard(Node):
     def __init__(self):
         super().__init__('teleop_jog_keyboard')
-        
-        # Publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.mode_pub = self.create_publisher(String, 'control_mode', 10)
+
+        # Publisher for TO mode velocity control (with namespace)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/teleop/cmd_vel', 10)
+        # Removed control_mode publisher - use service calls only
         
         # Service client for mode switching
         if SERVICES_AVAILABLE:
